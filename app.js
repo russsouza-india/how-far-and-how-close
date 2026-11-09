@@ -12,54 +12,54 @@ function update(){ $("measure").disabled=!(S.p.A&&S.p.B);$("undo").hidden=S.mode
 function set(k,p){if(!inside(p)){say("This learning activity is restricted to locations within Goa. Please choose a place inside Goa.","error");return false}S.p[k]=p;if(S.markers[k])map.removeLayer(S.markers[k]);S.markers[k]=L.circleMarker([p.lat,p.lng],{radius:9,color:"white",weight:3,fillColor:k==="A"?"#176fc1":"#e47a38",fillOpacity:1}).addTo(map).bindTooltip(k+" · "+(p.name||"Map point"));$("chosen"+k).textContent=p.name||p.lat.toFixed(5)+", "+p.lng.toFixed(5);$("search"+k).value=p.name||"";clearLine();$("km").innerHTML='— <em>km</em>';$("metres").textContent="— metres";update();advancePick(k);say(k==="A"?"Starting point selected. Now select destination B.":"Destination selected. You can now measure the distance.","success");return true}
 function clear(){["A","B"].forEach(k=>{S.p[k]=null;if(S.markers[k])map.removeLayer(S.markers[k]);S.markers[k]=null;$("chosen"+k).textContent="Not selected";$("search"+k).value="";$("suggest"+k).replaceChildren()});S.via=[];S.air=S.road=null;clearLine();$("km").innerHTML='— <em>km</em>';$("metres").textContent="— metres";$("detail").textContent="Choose Point A and Point B.";$("comparison").hidden=true;S.pick="A";document.querySelectorAll(".pick").forEach(b=>b.classList.toggle("active",b.dataset.pick==="A"));update();say("Points cleared. Select starting point A.")}
 document.querySelectorAll(".mode").forEach(b=>b.onclick=()=>{S.mode=b.dataset.mode;document.querySelectorAll(".mode").forEach(x=>x.classList.toggle("active",x===b));$("customHelp").hidden=S.mode!=="custom";S.via=[];clearLine();update();say(S.mode==="custom"?"Choose A and B, then tap the map to add route points.":"Choose A and B, then measure.")});
-document.querySelectorAll(".pick").forEach(b=>b.onclick=()=>{S.pick=b.dataset.pick;document.querySelectorAll(".pick").forEach(x=>x.classList.toggle("active",x===b));say("Now select a location within Goa for "+(S.pick==="A"?"the starting point A.":"the destination B."))});
-map.on("click",e=>{const p={lat:e.latlng.lat,lng:e.latlng.lng,name:"Map location"};if(!S.boundary){say("Goa learning boundary is still loading. Please wait.","error");return}if(S.pick==="A"||S.pick==="B"){set(S.pick,p);return}if(S.mode==="custom"&&S.p.A&&S.p.B){if(!inside(p)){say("Intermediate route points must also be within Goa.","error");return}S.via.push(p);drawCustom();return}say("Choose Pick A or Pick B before selecting a point on the map.","error")});
+document.querySelectorAll(".pick").forEach(b=>b.onclick=()=>{S.pick=b.dataset.pick;document.querySelectorAll(".pick").forEach(x=>x.classList.toggle("active",x===b));say("Click anywhere on the map within Goa to place "+(S.pick==="A"?"starting point A.":"destination B."))});
+map.on("click",e=>{const p={lat:e.latlng.lat,lng:e.latlng.lng,name:"Map location"};if(!S.boundary){say("Goa learning boundary is still loading. Please wait.","error");return}if(S.pick==="A"||S.pick==="B"){set(S.pick,p);return}if(S.mode==="custom"&&S.p.A&&S.p.B){if(!inside(p)){say("Intermediate route points must also be within Goa.","error");return}S.via.push(p);drawCustom();return}say("Choose Pick A or Pick B, then click anywhere within Goa on the map.","error")});
 function drawCustom(){clearLine();let pts=[S.p.A,...S.via,S.p.B];S.line=L.polyline(pts.map(p=>[p.lat,p.lng]),{color:"#0d6870",weight:4,dashArray:"6 6"}).addTo(map);say("Intermediate point added. Add more points or measure your route.")}
 async function search(k){
- let q=$("search"+k).value.trim(),box=$("suggest"+k);
+ const q=$("search"+k).value.trim(),box=$("suggest"+k);
  box.replaceChildren();
  if(q.length<2)return;
- const valid=x=>Number.isFinite(+x.lat)&&Number.isFinite(+x.lon)&&inside({lat:+x.lat,lng:+x.lon});
- const addResults=arr=>{
-  const seen=new Set(),clean=arr.filter(x=>{
-   if(!valid(x))return false;
-   const key=(+x.lat).toFixed(5)+","+(+x.lon).toFixed(5);
-   if(seen.has(key))return false;seen.add(key);return true
-  });
-  clean.forEach(x=>{
-   const name=x.name||x.display_name||[x.properties?.name,x.properties?.city,x.properties?.county].filter(Boolean).join(", ")||"Map location";
-   const lat=+(x.lat??x.geometry?.coordinates?.[1]),lon=+(x.lon??x.geometry?.coordinates?.[0]);
-   const b=document.createElement("button");b.textContent=x.display_name||[name,x.properties?.city,x.properties?.state].filter(Boolean).join(", ");
-   b.onclick=()=>{const p={lat,lng:lon,name};if(set(k,p)){map.setView([lat,lon],16);box.replaceChildren()}};
-   box.append(b)
-  });
-  return clean.length
- };
- try{
-  const base={format:"jsonv2",limit:"20",countrycodes:"in",viewbox:"73.65,15.85,74.45,14.85",bounded:"0"};
-  let params=new URLSearchParams({...base,q});
-  let r=await fetch("https://nominatim.openstreetmap.org/search?"+params.toString(),{headers:{"Accept-Language":"en"}});
-  if(!r.ok)throw Error("Nominatim unavailable");
-  let raw=await r.json();
-  if(addResults(raw))return;
-  if(!raw.length){
-   params=new URLSearchParams({...base,q:q+", Goa, India"});
-   r=await fetch("https://nominatim.openstreetmap.org/search?"+params.toString(),{headers:{"Accept-Language":"en"}});
-   if(r.ok){raw=await r.json();if(addResults(raw))return}
-  }
-  // Second independent geocoder helps find small localities and neighbourhoods.
-  const photon=await fetch("https://photon.komoot.io/api/?"+new URLSearchParams({q:q,lat:"15.49",lon:"73.83",limit:"20"}));
-  if(photon.ok){
-   const data=await photon.json();
-   const features=(data.features||[]).map(x=>({lat:x.geometry?.coordinates?.[1],lon:x.geometry?.coordinates?.[0],name:x.properties?.name||x.properties?.street||"Map location",display_name:[x.properties?.name,x.properties?.district,x.properties?.city,x.properties?.state].filter(Boolean).join(", ")}));
-   if(addResults(features))return
-  }
-  box.textContent="We couldn't find that name in the search databases. This does not mean the place is outside Goa. Press Pick and click its exact location on the map; zoom in for greater accuracy.";
- }catch(e){
-  box.textContent="Place-name search is temporarily unavailable. You can still press Pick and select the exact location directly on the map.";
+ const seen=new Set();
+ function add(lat,lon,name,label){
+  lat=Number(lat);lon=Number(lon);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)||!inside({lat,lng:lon}))return false;
+  const key=lat.toFixed(5)+","+lon.toFixed(5);if(seen.has(key))return false;seen.add(key);
+  const b=document.createElement("button");b.type="button";b.textContent=label||name||"Map location";
+  b.onclick=()=>{if(set(k,{lat,lng:lon,name:name||"Map location"})){map.setView([lat,lon],16);box.replaceChildren()}};
+  box.append(b);return true
  }
+ let found=0,photonError=false,nominatimError=false;
+ // Photon is tried first because it is designed for responsive place-name search.
+ try{
+  const url="https://photon.komoot.io/api/?"+new URLSearchParams({q:q,lat:"15.49",lon:"73.83",limit:"25",lang:"en"});
+  const r=await fetch(url);if(!r.ok)throw Error("Photon "+r.status);
+  const data=await r.json();
+  for(const f of (data.features||[])){
+   const p=f.properties||{},c=f.geometry?.coordinates||[];
+   const state=String(p.state||p.statecode||"").toLowerCase();
+   // The Goa polygon check is authoritative; state text is only descriptive.
+   if(add(c[1],c[0],p.name||p.street||p.locality||"Map location",[p.name,p.locality,p.district,p.city,p.state].filter(Boolean).join(", ")))found++
+  }
+ }catch(e){photonError=true}
+ if(found){say("Select the correct matching place, or use Pick to click any point on the map.","success");return}
+ // Nominatim fallback. Requests are deliberately delayed by the input debounce.
+ try{
+  const variants=[q,q+", Goa, India"];
+  for(const term of variants){
+   const params=new URLSearchParams({format:"jsonv2",limit:"20",countrycodes:"in",viewbox:"73.65,15.85,74.45,14.85",bounded:"0",addressdetails:"1",q:term});
+   const r=await fetch("https://nominatim.openstreetmap.org/search?"+params.toString(),{headers:{"Accept-Language":"en"}});
+   if(!r.ok)throw Error("Nominatim "+r.status);
+   const rows=await r.json();
+   for(const x of rows){if(add(x.lat,x.lon,x.name||x.display_name?.split(",")[0],x.display_name))found++}
+   if(found)break
+  }
+ }catch(e){nominatimError=true}
+ if(found){say("Select the correct matching place, or use Pick to click any point on the map.","success");return}
+ box.textContent=(photonError&&nominatimError)
+  ?"Place search services are temporarily unavailable. Press Pick and click the exact location on the map."
+  :"That locality is not listed in the search databases. It may still be in Goa. Press Pick and click its exact location on the map; zoom in for accuracy.";
 }
-["A","B"].forEach(k=>{let timer;$("search"+k).oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>search(k),450)}});
+["A","B"].forEach(k=>{let timer;$("search"+k).oninput=()=>{clearTimeout(timer);timer=setTimeout(()=>search(k),1100)}});
 function show(m,label){let f=fmt(m);$("km").innerHTML=f.km+' <em>km</em>';$("metres").textContent=f.m+" metres";$("detail").textContent=label;say("Distance calculated successfully.","success")}
 async function measure(){let a=S.p.A,b=S.p.B;if(!a||!b)return;clearLine();$("comparison").hidden=true;if(S.mode==="air"){S.air=hav(a,b);show(S.air,"Aerial distance · straight line");S.line=L.polyline([[a.lat,a.lng],[b.lat,b.lng]],{color:"#176fc1",weight:4,dashArray:"8 7"}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));return}
 if(S.mode==="custom"){let pts=[a,...S.via,b],coords=pts.map(p=>[p.lng,p.lat]);if(!pathInside(coords)){say("Your drawn route must remain within Goa. Remove or reposition the point outside Goa.","error");return}let total=pts.slice(1).reduce((sum,p,i)=>sum+hav(pts[i],p),0);show(total,"Student-drawn route · "+S.via.length+" intermediate points");S.line=L.polyline(pts.map(p=>[p.lat,p.lng]),{color:"#0d6870",weight:5}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));return}
