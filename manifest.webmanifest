@@ -1,0 +1,18 @@
+{
+  "name": "How Far and How Close \u2013 Goa Distance Explorer",
+  "short_name": "How Far?",
+  "description": "Measure aerial, road and student-drawn distances across Goa.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f6f3",
+  "theme_color": "#104f59",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
