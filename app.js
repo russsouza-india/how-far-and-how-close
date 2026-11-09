@@ -5,7 +5,33 @@ const say=(s,t="")=>{$("message").textContent=s;$("message").className="message 
 function hav(a,b){let r=Math.PI/180,d1=(b.lat-a.lat)*r,d2=(b.lng-a.lng)*r,x=Math.sin(d1/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(d2/2)**2;return 12742017.6*Math.asin(Math.sqrt(x))}
 function insideRing(p,ring){let hit=false;for(let i=0,j=ring.length-1;i<ring.length;j=i++){const [x,y]=ring[i],[xx,yy]=ring[j];if((y>p.lat)!==(yy>p.lat)&&p.lng<(xx-x)*(p.lat-y)/(yy-y)+x)hit=!hit}return hit}
 function inside(p){if(!S.boundary)return false;const g=S.boundary.geometry,polys=g.type==="Polygon"?[g.coordinates]:g.coordinates;return polys.some(poly=>insideRing(p,poly[0])&&!poly.slice(1).some(r=>insideRing(p,r)))}
-function pathInside(coords){for(let i=1;i<coords.length;i++){const [x,y]=coords[i-1],[xx,yy]=coords[i],d=hav({lat:y,lng:x},{lat:yy,lng:xx}),n=Math.max(1,Math.ceil(d/150));for(let j=0;j<=n;j++){const t=j/n;if(!inside({lat:y+(yy-y)*t,lng:x+(xx-x)*t}))return false}}return true}
+function boundaryDistance(p){
+ if(!S.boundary)return Infinity;
+ const g=S.boundary.geometry,polys=g.type==="Polygon"?[g.coordinates]:g.coordinates;
+ const cos=Math.cos(p.lat*Math.PI/180),sx=111320*cos,sy=110540;
+ let best=Infinity;
+ for(const poly of polys)for(const ring of poly){
+  for(let i=1;i<ring.length;i++){
+   const ax=(ring[i-1][0]-p.lng)*sx,ay=(ring[i-1][1]-p.lat)*sy;
+   const bx=(ring[i][0]-p.lng)*sx,by=(ring[i][1]-p.lat)*sy;
+   const dx=bx-ax,dy=by-ay,len=dx*dx+dy*dy;
+   const t=len?Math.max(0,Math.min(1,-(ax*dx+ay*dy)/len)):0;
+   const d=Math.hypot(ax+t*dx,ay+t*dy);
+   if(d<best)best=d;
+  }
+ }
+ return best
+}
+function pathInside(coords,bufferMeters=0){
+ for(let i=1;i<coords.length;i++){
+  const [x,y]=coords[i-1],[xx,yy]=coords[i],d=hav({lat:y,lng:x},{lat:yy,lng:xx}),n=Math.max(1,Math.ceil(d/150));
+  for(let j=0;j<=n;j++){
+   const t=j/n,p={lat:y+(yy-y)*t,lng:x+(xx-x)*t};
+   if(!inside(p)&&(bufferMeters<=0||boundaryDistance(p)>bufferMeters))return false
+  }
+ }
+ return true
+}
 function advancePick(k){S.pick=k==="A"?"B":null;document.querySelectorAll(".pick").forEach(b=>b.classList.toggle("active",b.dataset.pick===S.pick));}
 function clearLine(){if(S.line){map.removeLayer(S.line);S.line=null}}
 function update(){ $("measure").disabled=!(S.p.A&&S.p.B);$("undo").hidden=S.mode!=="custom"}
@@ -63,7 +89,7 @@ async function search(k){
 function show(m,label){let f=fmt(m);$("km").innerHTML=f.km+' <em>km</em>';$("metres").textContent=f.m+" metres";$("detail").textContent=label;say("Distance calculated successfully.","success")}
 async function measure(){let a=S.p.A,b=S.p.B;if(!a||!b)return;clearLine();$("comparison").hidden=true;if(S.mode==="air"){S.air=hav(a,b);show(S.air,"Aerial distance · straight line");S.line=L.polyline([[a.lat,a.lng],[b.lat,b.lng]],{color:"#176fc1",weight:4,dashArray:"8 7"}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));return}
 if(S.mode==="custom"){let pts=[a,...S.via,b],coords=pts.map(p=>[p.lng,p.lat]);if(!pathInside(coords)){say("Your drawn route must remain within Goa. Remove or reposition the point outside Goa.","error");return}let total=pts.slice(1).reduce((sum,p,i)=>sum+hav(pts[i],p),0);show(total,"Student-drawn route · "+S.via.length+" intermediate points");S.line=L.polyline(pts.map(p=>[p.lat,p.lng]),{color:"#0d6870",weight:5}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));return}
-say("Finding a road route within Goa…");$("measure").disabled=true;try{const u="https://router.project-osrm.org/route/v1/driving/"+a.lng+","+a.lat+";"+b.lng+","+b.lat+"?overview=full&geometries=geojson&alternatives=3&steps=false",r=await fetch(u);if(!r.ok)throw Error("The road-routing service is temporarily unavailable");const d=await r.json();if(d.code!=="Ok"||!d.routes?.length)throw Error("No connected road route was found between these points");const route=d.routes.find(x=>pathInside(x.geometry.coordinates));if(!route)throw Error("The routing service returned routes, but none stayed completely within the Goa boundary. Try moving A or B slightly onto a nearby road inside Goa, or use My route.");S.road=route.distance;show(S.road,"Road distance · route verified within Goa");S.line=L.geoJSON(route.geometry,{style:{color:"#0d6870",weight:5}}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));if(S.air!==null){$("comparison").hidden=false;$("comparison").textContent="Difference between road and aerial distance: "+fmt(Math.abs(S.road-S.air)).km+" km"}say("Road route found and checked against the Goa boundary.","success")}catch(e){say(e.message,"error")}finally{update()}}
+say("Finding a road route within Goa…");$("measure").disabled=true;try{const u="https://router.project-osrm.org/route/v1/driving/"+a.lng+","+a.lat+";"+b.lng+","+b.lat+"?overview=full&geometries=geojson&alternatives=3&steps=false",r=await fetch(u);if(!r.ok)throw Error("The road-routing service is temporarily unavailable");const d=await r.json();if(d.code!=="Ok"||!d.routes?.length)throw Error("No connected road route was found between these points");const route=d.routes.find(x=>pathInside(x.geometry.coordinates,15000));if(!route)throw Error("The routing service returned routes that extend more than 15 km beyond the Goa boundary. Try moving A or B onto a nearby road or use My route.");S.road=route.distance;show(S.road,"Road distance · route within Goa and its 15 km routing buffer");S.line=L.geoJSON(route.geometry,{style:{color:"#0d6870",weight:5}}).addTo(map);map.fitBounds(S.line.getBounds().pad(.2));if(S.air!==null){$("comparison").hidden=false;$("comparison").textContent="Difference between road and aerial distance: "+fmt(Math.abs(S.road-S.air)).km+" km"}say("Road route found and checked against the Goa boundary.","success")}catch(e){say(e.message,"error")}finally{update()}}
 $("measure").onclick=measure;$("clear").onclick=clear;$("undo").onclick=()=>{S.via.pop();drawCustom()};
 $("reset").onclick=()=>map.setView([15.35,74.05],9);
 $("boundaryStatus").textContent="Goa-only learning area · boundary hidden";say("Loading the Goa learning area…","");update();
